@@ -23,7 +23,7 @@ public class Service {
     @Autowired
     SpringJdbcConfig config;
 
-    @Scheduled(fixedRate = 1000)
+    @Scheduled(cron = "0 0 3 * * ?", zone = "GMT+2:00")
     public void checkingForMissingUserDay() {
         final Calendar cal = Calendar.getInstance();
         cal.add(Calendar.DATE, -1);
