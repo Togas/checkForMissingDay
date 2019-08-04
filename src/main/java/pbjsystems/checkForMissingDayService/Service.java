@@ -3,6 +3,7 @@ package pbjsystems.checkForMissingDayService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
 import org.springframework.jdbc.core.namedparam.SqlParameterSource;
 import org.springframework.jdbc.core.simple.SimpleJdbcCall;
@@ -22,7 +23,7 @@ public class Service {
     @Autowired
     SpringJdbcConfig config;
 
-    @Scheduled(cron = "0 0 3 * * ?")
+    @Scheduled(fixedRate = 1000)
     public void checkingForMissingUserDay() {
         final Calendar cal = Calendar.getInstance();
         cal.add(Calendar.DATE, -1);
@@ -32,25 +33,66 @@ public class Service {
                 cal.get(Calendar.DAY_OF_WEEK) == Calendar.SUNDAY || checkForHoliday(yesterday, States.he)) {
             return;
         } else {
-            addUserMissingDay(yesterday);
-            subtractUserSaldo(yesterday);
+        yesterday = "'" + yesterday + "'";
+        addUserMissingDay(yesterday);
+        subtractUserSaldo(yesterday);
         }
     }
 
     private void addUserMissingDay(String yesterday) {
-        SimpleJdbcCall simpleJdbcCall = new SimpleJdbcCall(config.mysqlDataSource()).withProcedureName("add_user_missing_days");
-        Map<String, Object> parameter = new HashMap<>();
-        parameter.put("yesterday", yesterday);
-        SqlParameterSource in = new MapSqlParameterSource(parameter);
-        simpleJdbcCall.execute(in);
+//        SimpleJdbcCall simpleJdbcCall = new SimpleJdbcCall(config.mysqlDataSource());
+//        Map<String, Object> parameter = new HashMap<>();
+//        parameter.put("yesterday", yesterday);
+//        SqlParameterSource in = new MapSqlParameterSource(parameter);
+//        simpleJdbcCall.execute(in);
+        JdbcTemplate jdbcTemplate = new JdbcTemplate(config.mysqlDataSource());
+        jdbcTemplate.execute("INSERT into user_missing_days(user_id, missing_date)" +
+                "SELECT id," + yesterday +
+                "FROM users " +
+                "WHERE is_deleted=0 and " +
+                "id in" +
+                "(SELECT id " +
+                "FROM users " +
+                "WHERE id not IN" +
+                "(SELECT users_id " +
+                "FROM USER_timesheets " +
+                "WHERE DATE=" + yesterday + ") " +
+                "and id NOT IN" +
+                "(SELECT user_id " +
+                "FROM vacation " +
+                "WHERE date_from<=" + yesterday + " AND date_to>=" + yesterday + ")" +
+                "and id NOT IN" +
+                "(SELECT user_id " +
+                "FROM disease" +
+                " WHERE date_from<=" + yesterday + " AND date_to>=" + yesterday + "));");
     }
 
     private void subtractUserSaldo(String yesterday) {
-        SimpleJdbcCall simpleJdbcCall = new SimpleJdbcCall(config.mysqlDataSource()).withProcedureName("subtract_user_saldo");
-        Map<String, Object> parameter = new HashMap<>();
-        parameter.put("yesterday", yesterday);
-        SqlParameterSource in = new MapSqlParameterSource(parameter);
-        simpleJdbcCall.execute(in);
+//        SimpleJdbcCall simpleJdbcCall = new SimpleJdbcCall(config.mysqlDataSource()).withProcedureName("subtract_user_saldo");
+//        Map<String, Object> parameter = new HashMap<>();
+//        parameter.put("yesterday", yesterday);
+//        SqlParameterSource in = new MapSqlParameterSource(parameter);
+//        simpleJdbcCall.execute(in);
+        JdbcTemplate jdbcTemplate = new JdbcTemplate(config.mysqlDataSource());
+        jdbcTemplate.execute("update users " +
+                "SET saldo_total=saldo_total - weekly_work_hrs/5 " +
+                "WHERE is_deleted=0 and " +
+                "id in" +
+                "(SELECT id " +
+                "FROM users " +
+                "WHERE id not IN" +
+                "(SELECT users_id " +
+                "FROM USER_timesheets " +
+                "WHERE DATE=" + yesterday + ") " +
+                "and id NOT IN" +
+                "(SELECT user_id " +
+                "FROM vacation " +
+                "WHERE date_from<=" + yesterday + " AND date_to>=" + yesterday + ")" +
+                "and id NOT IN" +
+                "(SELECT user_id " +
+                "FROM disease" +
+                " WHERE date_from<=" + yesterday + " AND date_to>=" + yesterday + "));");
+
     }
 
     private boolean checkForHoliday(String date, States state) {
@@ -63,7 +105,7 @@ public class Service {
         try {
             Holiday holiday = client.post().retrieve().bodyToMono(Holiday.class).block();
             return holiday.isHoliday();
-        } catch(Exception e) {
+        } catch (Exception e) {
             logger.info("Feiertage request failed. Please check if this api is still usable! ");
             return true;
         }
